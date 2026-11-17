@@ -35,3 +35,10 @@ Följ [testschemat](docs/TESTSCHEMA.md) för emulator, QGIS och fälttest.
 - **Extern GNSS** läser GGA och GST via NMEA/TCP. Mottagaren ansvarar för
   RTK-korrigeringarna. En RTK-fix utan uppskattad osäkerhet sparas som
   preliminär. Mättiden är när appen tog emot positionen.
+
+## Baskarta
+
+OpenStreetMap visas bakom projektets objekt och aktuell position. Appen
+hämtar kartbilder för den synliga vyn och återanvänder lokalt cachade bilder.
+Kartan kan stängas av med reglaget under kartvyn. Vid nätåtkomst skickar
+appen kartutsnittets tile-adresser till OpenStreetMap.

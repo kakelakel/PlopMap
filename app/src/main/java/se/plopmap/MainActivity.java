@@ -115,6 +115,21 @@ public final class MainActivity extends Activity {
         button(form, "Välj objekttyp", this::switchGeometry);
         map = new SurveyMap(this);
         form.addView(map, new LinearLayout.LayoutParams(-1, padding * 8));
+        android.widget.Switch basemap = new android.widget.Switch(this);
+        basemap.setText("Baskarta (OpenStreetMap)");
+        basemap.setChecked(getPreferences(MODE_PRIVATE).getBoolean("basemap", true));
+        map.setBasemapEnabled(basemap.isChecked());
+        basemap.setOnCheckedChangeListener((view, enabled) -> {
+            getPreferences(MODE_PRIVATE).edit().putBoolean("basemap", enabled).apply();
+            map.setBasemapEnabled(enabled);
+        });
+        form.addView(basemap);
+        TextView copyright = new TextView(this);
+        copyright.setText(android.text.Html.fromHtml(
+                "<a href=\"https://www.openstreetmap.org/copyright\">Kartdata och licens · OpenStreetMap</a>",
+                android.text.Html.FROM_HTML_MODE_COMPACT));
+        copyright.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
+        form.addView(copyright);
         button(form, "Föreslå yta från flygbild", this::chooseAerial);
         status = new TextView(this);
         form.addView(status);

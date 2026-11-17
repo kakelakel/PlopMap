@@ -87,3 +87,11 @@ RTK-fix utan rapporterad osäkerhet. Stoppa servern mellan försöken.
 | F2 | Anslut med `--quality 5` eller `--no-gst`. Stoppa sedan servern. | RTK float eller saknad osäkerhet ger preliminär mätning. Vid avbrott blir sparknappen inaktiv och appen visar ett fel. |
 | F3 | Starta fixturen igen och anslut. Tryck sedan **Aktivera telefonens GPS** och skicka en separat emulatorposition. | Källan byts till telefonens GPS. Ingen tidigare position från mottagaren kan sparas som telefonmätning. |
 | F4 | Mät upprepade gånger mot en känd punkt med verklig RTK-mottagare. Spara punkt och minst en linje. Exportera till QGIS och kontrollera fixstatus, källa, höjd och faktiska planfel. | Exporten kan spåras till mätkällan per brytpunkt. Redovisa antal avvikelser över 0,20 m i plan. Rapportera höjdavvikelse separat. |
+
+## G. Baskarta
+
+| ID | Gör så här | Godkänt när |
+|---|---|---|
+| G1 | Ha nätåtkomst, slå på **Baskarta (OpenStreetMap)** och skicka position 57.65000, 14.69000. | Vägar och andra kartdetaljer visas bakom positionspunkten, med OpenStreetMap-attribution. |
+| G2 | Spara en punkt och mät in en linje i samma område. Slå av baskartan. | Objekten ligger kvar i översikten och går att exportera även när baskartan är av. |
+| G3 | Koppla ned nätet efter att kartan har laddats. Återgå till samma position. | Cachade kartbilder visas när de finns. Plats, objekt och export fungerar även när delar av kartan saknas. |
