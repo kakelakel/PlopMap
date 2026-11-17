@@ -16,10 +16,6 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
 final class ShapefileExport {
-    private static final String WGS84 = "GEOGCS[\"GCS_WGS_1984\",DATUM[\"D_WGS_1984\","
-            + "SPHEROID[\"WGS_1984\",6378137,298.257223563]],PRIMEM[\"Greenwich\",0],"
-            + "UNIT[\"Degree\",0.0174532925199433]]";
-
     private record Field(String name, char type, int width, int decimals) {}
     private record Row(List<PolygonRing.Vertex> points, String[] values) {}
 
@@ -33,7 +29,7 @@ final class ShapefileExport {
             new Field("matt_utc", 'C', 32, 0)
     };
 
-    static void write(JSONArray features, OutputStream output) throws JSONException, IOException {
+    static void write(JSONArray features, OutputStream output, ExportCrs crs) throws JSONException, IOException {
         List<Row> points = new ArrayList<>();
         List<Row> lines = new ArrayList<>();
         List<Row> polygons = new ArrayList<>();
@@ -47,7 +43,7 @@ final class ShapefileExport {
             if ("Point".equals(type)) {
                 String[] fields = values(feature, properties, properties, "");
                 if (fields[8].isEmpty() && coordinates.length() > 2) fields[8] = number(coordinates, 2);
-                points.add(new Row(java.util.Collections.singletonList(vertex(coordinates)), fields));
+                points.add(new Row(java.util.Collections.singletonList(vertex(coordinates, crs)), fields));
                 continue;
             }
             boolean polygon = "Polygon".equals(type);
@@ -56,7 +52,7 @@ final class ShapefileExport {
             List<PolygonRing.Vertex> geometryPoints = new ArrayList<>();
             JSONArray measurements = properties.getJSONArray("hornmatningar");
             for (int j = 0; j < path.length(); j++) {
-                var point = vertex(path.getJSONArray(j));
+                var point = vertex(path.getJSONArray(j), crs);
                 geometryPoints.add(point);
                 if (j < measurements.length()) {
                     vertices.add(new Row(java.util.Collections.singletonList(point),
@@ -70,15 +66,15 @@ final class ShapefileExport {
         }
 
         try (ZipOutputStream zip = new ZipOutputStream(output)) {
-            layer(zip, "punkter", 1, points);
-            layer(zip, "linjer", 3, lines);
-            layer(zip, "ytor", 5, polygons);
-            layer(zip, "brytpunkter", 1, vertices);
+            layer(zip, "punkter", 1, points, crs);
+            layer(zip, "linjer", 3, lines, crs);
+            layer(zip, "ytor", 5, polygons, crs);
+            layer(zip, "brytpunkter", 1, vertices, crs);
         }
     }
 
-    private static PolygonRing.Vertex vertex(JSONArray point) throws JSONException {
-        return new PolygonRing.Vertex(point.getDouble(0), point.getDouble(1));
+    private static PolygonRing.Vertex vertex(JSONArray point, ExportCrs crs) throws JSONException {
+        return crs.project(point.getDouble(0), point.getDouble(1));
     }
 
     private static String[] values(JSONObject feature, JSONObject properties, JSONObject measurement, String index) {
@@ -101,7 +97,7 @@ final class ShapefileExport {
         return Double.isFinite(value) ? String.format(java.util.Locale.ROOT, "%.4f", value) : "";
     }
 
-    private static void layer(ZipOutputStream zip, String name, int type, List<Row> rows) throws IOException {
+    private static void layer(ZipOutputStream zip, String name, int type, List<Row> rows, ExportCrs crs) throws IOException {
         if (rows.isEmpty()) return;
         Bounds bounds = new Bounds();
         int length = 100;
@@ -138,7 +134,7 @@ final class ShapefileExport {
         zip.closeEntry();
 
         writeTable(zip, name, rows);
-        entry(zip, name + ".prj", WGS84);
+        entry(zip, name + ".prj", crs.wkt());
         entry(zip, name + ".cpg", "UTF-8");
     }
 

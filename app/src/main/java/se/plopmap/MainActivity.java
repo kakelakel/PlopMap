@@ -74,7 +74,7 @@ public final class MainActivity extends Activity {
     private boolean polygon() { return mode == 1; }
     private boolean multipart() { return mode != 0; }
     private SurveyMap map;
-    private boolean shapefile;
+    private int exportFormat;
     private TextView title;
     private Button cornerButton;
     private Button undoButton;
@@ -137,7 +137,7 @@ public final class MainActivity extends Activity {
         save = button(form, "Spara punkt", this::savePoint);
         if (state != null) {
             mode = state.getInt("mode", state.getBoolean("polygon") ? 1 : 0);
-            shapefile = state.getBoolean("shapefile");
+            exportFormat = state.getInt("exportFormat", state.getBoolean("shapefile") ? 1 : 0);
             java.util.ArrayList<Location> restored = state.getParcelableArrayList("corners");
             if (restored != null) corners.addAll(restored);
         }
@@ -153,7 +153,7 @@ public final class MainActivity extends Activity {
     protected void onSaveInstanceState(Bundle state) {
         super.onSaveInstanceState(state);
         state.putInt("mode", mode);
-        state.putBoolean("shapefile", shapefile);
+        state.putInt("exportFormat", exportFormat);
         state.putParcelableArrayList("corners", corners);
     }
 
@@ -466,15 +466,38 @@ public final class MainActivity extends Activity {
 
     private void chooseExport() {
         new android.app.AlertDialog.Builder(this).setTitle("Exportformat")
-                .setItems(new String[]{"GeoJSON", "Shapefile (ZIP)"}, (dialog, which) -> createExport(which == 1))
+                .setItems(new String[]{"GeoJSON · WGS 84", "Shapefile · WGS 84", "Shapefile · SWEREF 99 TM"},
+                        (dialog, which) -> createExport(which))
                 .show();
     }
 
-    private void createExport(boolean zip) {
-        shapefile = zip;
+    private void createExport(int format) {
+        exportFormat = format;
+        boolean zip = format != 0;
+        if (format == 2) try {
+            for (int i = 0; i < features.length(); i++) {
+                JSONObject geometry = features.getJSONObject(i).getJSONObject("geometry");
+                JSONArray coordinates = geometry.getJSONArray("coordinates");
+                switch (geometry.getString("type")) {
+                    case "Point": coordinates = new JSONArray().put(coordinates); break;
+                    case "Polygon": coordinates = coordinates.getJSONArray(0); break;
+                    default: break;
+                }
+                for (int j = 0; j < coordinates.length(); j++) {
+                    JSONArray point = coordinates.getJSONArray(j);
+                    ExportCrs.SWEREF99_TM.project(point.getDouble(0), point.getDouble(1));
+                }
+            }
+        } catch (IllegalArgumentException error) {
+            message(error.getMessage());
+            return;
+        } catch (JSONException error) {
+            message("Projektets koordinater kunde inte läsas.");
+            return;
+        }
         Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT)
                 .addCategory(Intent.CATEGORY_OPENABLE).setType(zip ? "application/zip" : "application/geo+json")
-                .putExtra(Intent.EXTRA_TITLE, zip ? "plopmap-inmatning.zip" : "plopmap-inmatning.geojson");
+                .putExtra(Intent.EXTRA_TITLE, zip ? (format == 2 ? "plopmap-sweref99tm.zip" : "plopmap-wgs84.zip") : "plopmap-inmatning.geojson");
         startActivityForResult(intent, EXPORT_FILE);
     }
 
@@ -484,16 +507,17 @@ public final class MainActivity extends Activity {
         if (code != EXPORT_FILE || result != RESULT_OK || data == null || data.getData() == null || features == null) return;
         try (OutputStream output = getContentResolver().openOutputStream(data.getData(), "wt")) {
             if (output == null) throw new IOException("Output unavailable");
-            if (shapefile) ShapefileExport.write(features, output);
+            if (exportFormat != 0) ShapefileExport.write(features, output,
+                    exportFormat == 2 ? ExportCrs.SWEREF99_TM : ExportCrs.WGS84);
             else {
                 JSONObject collection = new JSONObject().put("type", "FeatureCollection").put("features", features);
                 output.write(collection.toString().getBytes(StandardCharsets.UTF_8));
             }
-        } catch (IOException | JSONException error) {
+        } catch (IOException | JSONException | IllegalArgumentException error) {
             message("Exporten misslyckades.");
             return;
         }
-        message(shapefile ? "Shapefile exporterades." : "GeoJSON exporterades.");
+        message(exportFormat != 0 ? "Shapefile exporterades." : "GeoJSON exporterades.");
     }
 
     private void message(String text) {

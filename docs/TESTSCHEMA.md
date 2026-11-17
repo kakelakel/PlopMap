@@ -25,7 +25,7 @@ du spara den. Vänta in en färsk position om knappen blir inaktiv.
 
 ## B. Export i QGIS
 
-Exportera från **Fälttest** med både **GeoJSON** och **Shapefile (ZIP)**.
+Exportera från **Fälttest** med **GeoJSON · WGS 84**, **Shapefile · WGS 84** och **Shapefile · SWEREF 99 TM**.
 Packa upp ZIP-filen och lägg till `.shp`-filerna som vektorlager i QGIS.
 Om QGIS delar GeoJSON efter geometrityp, lägg till alla geometrier.
 
@@ -35,6 +35,8 @@ Om QGIS delar GeoJSON efter geometrityp, lägg till alla geometrier.
 | B2 | Öppna Shapefile-lagren `punkter`, `linjer`, `ytor` och `brytpunkter`. | Lagren har 1, 1, 1 och 5 objekt. Koordinatsystemet är WGS 84 (EPSG:4326). Inga objekt från andra projekt finns med. |
 | B3 | Öppna attributtabellerna. Jämför `uuid` mellan brytpunkter och geometrilager. Kontrollera `horn_nr`, `hojd_m`, `hojdref` och `plan_m`. | Linjen har två kopplade brytpunkter och ytan tre. Tillgängliga mätvärden stämmer med källan. Saknade numeriska mätvärden är tomma. |
 | B4 | Kontrollera `anteckn` på brunnen. Kör **Kontrollera giltighet** på ytorna. | Svenska tecken visas rätt och ytan är giltig. Shapefile lagrar höjd i attribut och textfält kan kortas till DBF-fältets bredd. |
+| B5 | Öppna ZIP-lagren från SWEREF-exporten. Lägg dem ovanpå WGS 84-versionen i QGIS och kontrollera koordinaterna. | Lagren identifieras som EPSG:3006 och sammanfaller på kartan. ID, höjdreferens och mätosäkerhet är oförändrade. |
+| B6 | Skapa ett eget projekt och spara en punkt vid 48.86, 2.35 i emulatorn. Prova SWEREF-export. | Vid koordinater utanför exportens geografiska intervall visas ett fel före filvalet. Export till WGS 84 fungerar fortfarande. |
 
 ## C. Fälttest på fysisk telefon
 
@@ -52,5 +54,5 @@ Om QGIS delar GeoJSON efter geometrityp, lägg till alla geometrier.
 - **Flygbild**. Klicka på gräsytor i georefererade flygbilder vid asfalt,
   grus och skugga. Jämför tid för förslag plus korrigering med manuell
   ritning. Kontrollera att källan följer med vid export.
-- **Objektmallar, GeoPackage och SWEREF-export**. Skapa en egen mall och
+- **Objektmallar och GeoPackage**. Skapa en egen mall och
   jämför fälttyper, obligatoriska värden, geometri och referenssystem i QGIS.
