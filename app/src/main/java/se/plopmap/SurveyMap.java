@@ -23,10 +23,38 @@ final class SurveyMap extends View {
     private final android.graphics.RectF tileRect = new android.graphics.RectF();
     private boolean basemapEnabled;
     private double centerX, centerY, scaleX;
+    private boolean automatic = true;
+    private Location latestFix;
+    private final android.view.GestureDetector gestures;
+    private final android.view.ScaleGestureDetector pinch;
+    private boolean multiTouch;
+    private int bottomOverlay;
 
     SurveyMap(Context context) {
         super(context);
         tiles = new BasemapTiles(context);
+        pinch = new android.view.ScaleGestureDetector(context,
+                new android.view.ScaleGestureDetector.SimpleOnScaleGestureListener() {
+                    @Override public boolean onScale(android.view.ScaleGestureDetector detector) {
+                        zoomAt(detector.getScaleFactor(), detector.getFocusX(), detector.getFocusY());
+                        return true;
+                    }
+                });
+        pinch.setQuickScaleEnabled(false);
+        gestures = new android.view.GestureDetector(context, new android.view.GestureDetector.SimpleOnGestureListener() {
+            @Override public boolean onDown(android.view.MotionEvent event) { return true; }
+            @Override public boolean onScroll(android.view.MotionEvent start, android.view.MotionEvent current,
+                                              float dx, float dy) {
+                if (multiTouch || scaleX <= 0) return false;
+                automatic = false;
+                setCenter(centerX + dx / scaleX, centerY + dy / scaleX);
+                return true;
+            }
+            @Override public boolean onDoubleTap(android.view.MotionEvent event) {
+                zoomAt(2, event.getX(), event.getY());
+                return true;
+            }
+        });
         setContentDescription("Översikt över sparade objekt, pågående inmätning och aktuell GPS-position");
     }
 
@@ -54,6 +82,7 @@ final class SurveyMap extends View {
                 if (!points.isEmpty()) saved.add(new Shape(points, "Polygon".equals(type), 0xff266d4b));
             }
         }
+        latestFix = fix;
         shapes.clear();
         shapes.addAll(saved);
         List<PolygonRing.Vertex> points = new ArrayList<>();
@@ -67,9 +96,70 @@ final class SurveyMap extends View {
         return new PolygonRing.Vertex(location.getLongitude(), location.getLatitude());
     }
 
+    void setBottomOverlay(int height) {
+        if (bottomOverlay == height) return;
+        bottomOverlay = height;
+        invalidate();
+    }
+
     void setBasemapEnabled(boolean enabled) {
         basemapEnabled = enabled;
         invalidate();
+    }
+
+    @Override
+    public boolean onTouchEvent(android.view.MotionEvent event) {
+        if (event.getActionMasked() == android.view.MotionEvent.ACTION_DOWN) multiTouch = false;
+        if (event.getPointerCount() > 1) multiTouch = true;
+        pinch.onTouchEvent(event);
+        gestures.onTouchEvent(event);
+        return true;
+    }
+
+    void zoom(double factor) {
+        zoomAt(factor, getWidth() / 2f, getHeight() / 2f);
+    }
+
+    private void zoomAt(double factor, float x, float y) {
+        if (scaleX <= 0) return;
+        double before = scaleX;
+        scaleX = Math.max(Math.max(getWidth(), getHeight()), Math.min(1_073_741_824, before * factor));
+        automatic = false;
+        setCenter(centerX + (x - getWidth() / 2.0) * (1 / before - 1 / scaleX),
+                centerY + (y - getHeight() / 2.0) * (1 / before - 1 / scaleX));
+    }
+
+    private void setCenter(double x, double y) {
+        centerX = Math.max(0, Math.min(1, x));
+        centerY = Math.max(0, Math.min(1, y));
+        invalidate();
+    }
+
+    void fit() {
+        automatic = true;
+        invalidate();
+    }
+
+    boolean locate() {
+        if (latestFix == null) return false;
+        automatic = false;
+        scaleX = 256 * (1 << 18);
+        setCenter(mercatorX(latestFix.getLongitude()), mercatorY(latestFix.getLatitude()));
+        return true;
+    }
+
+    void saveCamera(android.os.Bundle state) {
+        state.putBoolean("cameraAutomatic", automatic);
+        state.putDouble("cameraX", centerX);
+        state.putDouble("cameraY", centerY);
+        state.putDouble("cameraScale", scaleX);
+    }
+
+    void restoreCamera(android.os.Bundle state) {
+        automatic = state.getBoolean("cameraAutomatic", true);
+        centerX = state.getDouble("cameraX");
+        centerY = state.getDouble("cameraY");
+        scaleX = state.getDouble("cameraScale");
     }
 
     private static double mercatorX(double longitude) {
@@ -85,8 +175,40 @@ final class SurveyMap extends View {
     protected void onDraw(Canvas canvas) {
         canvas.drawColor(0xffe9f1ec);
         float margin = 16 * getResources().getDisplayMetrics().density;
-        if (shapes.isEmpty() || getWidth() <= 2 * margin || getHeight() <= 4 * margin) {
-            label(canvas, "Väntar på position eller sparade objekt", margin, margin * 1.3f);
+        if (getWidth() <= 2 * margin || getHeight() <= 4 * margin) return;
+        if (scaleX <= 0 || automatic) fitCamera(margin);
+        if (basemapEnabled) drawTiles(canvas);
+        drawShapes(canvas, margin);
+        if (basemapEnabled) label(canvas, "© OpenStreetMap contributors", margin, getHeight() - margin / 2);
+        drawScale(canvas, margin);
+    }
+
+    private void drawScale(Canvas canvas, float margin) {
+        double latitude = Math.atan(Math.sinh(Math.PI * (1 - 2 * centerY)));
+        double metresPerPixel = 40_075_016.686 * Math.cos(latitude) / scaleX;
+        double maximum = margin * 5 * metresPerPixel;
+        double step = Math.pow(10, Math.floor(Math.log10(maximum)));
+        double metres = (maximum >= 5 * step ? 5 : maximum >= 2 * step ? 2 : 1) * step;
+        float length = (float) (metres / metresPerPixel);
+        float x = margin;
+        float y = getHeight() - bottomOverlay - margin * 1.35f;
+        if (y < margin * 3) return;
+        String distance = metres >= 1000 ? (int) (metres / 1000) + " km"
+                : metres >= 1 ? (int) metres + " m" : Math.round(metres * 100) + " cm";
+        paint.setColor(0xfffcfffd);
+        paint.setStrokeWidth(margin / 4);
+        canvas.drawLine(x, y, x + length, y, paint);
+        paint.setColor(0xff13362e);
+        paint.setStrokeWidth(margin / 8);
+        canvas.drawLine(x, y, x + length, y, paint);
+        label(canvas, distance, x, y - margin * 0.3f);
+    }
+
+    private void fitCamera(float margin) {
+        if (shapes.isEmpty()) {
+            centerX = mercatorX(15);
+            centerY = mercatorY(62);
+            scaleX = 8192;
             return;
         }
 
@@ -105,7 +227,9 @@ final class SurveyMap extends View {
         double span = basemapEnabled ? 0.000004 : 0.00000008;
         scaleX = Math.min((getWidth() - 2 * margin) / Math.max(span, maxX - minX),
                 (getHeight() - 3 * margin) / Math.max(span, maxY - minY));
-        if (basemapEnabled) drawTiles(canvas);
+    }
+
+    private void drawShapes(Canvas canvas, float margin) {
         for (Shape shape : shapes) {
             paint.setColor(shape.color());
             Path path = new Path();
@@ -116,7 +240,11 @@ final class SurveyMap extends View {
                 if (first) path.moveTo(x, y);
                 else path.lineTo(x, y);
                 first = false;
-                canvas.drawCircle(x, y, margin / 4, paint);
+                int color = paint.getColor();
+                paint.setColor(0xfffcfffd);
+                canvas.drawCircle(x, y, margin * 0.37f, paint);
+                paint.setColor(color);
+                canvas.drawCircle(x, y, margin * 0.25f, paint);
             }
             if (shape.closed()) {
                 path.close();
@@ -125,12 +253,12 @@ final class SurveyMap extends View {
                 paint.setAlpha(255);
             }
             paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeJoin(Paint.Join.ROUND);
+            paint.setStrokeCap(Paint.Cap.ROUND);
             paint.setStrokeWidth(margin / 6);
             canvas.drawPath(path, paint);
             paint.setStyle(Paint.Style.FILL);
         }
-        label(canvas, basemapEnabled ? "Baskarta · norr upp" : "Objektöversikt · norr upp", margin, margin * 1.3f);
-        if (basemapEnabled) label(canvas, "© OpenStreetMap contributors", margin, getHeight() - margin / 2);
     }
 
     private float screenX(double value) {

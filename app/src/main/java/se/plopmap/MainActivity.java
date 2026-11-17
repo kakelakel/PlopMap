@@ -9,6 +9,7 @@ import android.location.LocationListener;
 import android.location.LocationManager;
 import android.os.Bundle;
 import android.os.SystemClock;
+import android.view.View;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
@@ -85,6 +86,16 @@ public final class MainActivity extends Activity {
     private TextView title;
     private Button cornerButton;
     private Button undoButton;
+    private Button detailsButton;
+    private Button fullscreenButton;
+    private android.widget.FrameLayout screen;
+    private LinearLayout header;
+    private LinearLayout dock;
+    private ScrollView details;
+    private boolean fullscreen;
+    private static final int INK = 0xff13362e;
+    private static final int PAPER = 0xfff5faf5;
+    private static final int LIME = 0xffccf487;
 
     @Override
     public void onCreate(Bundle state) {
@@ -99,42 +110,81 @@ public final class MainActivity extends Activity {
         project = getPreferences(MODE_PRIVATE).getString("project", DEFAULT_PROJECT);
         selectProjectFeatures();
 
-        ScrollView scroll = new ScrollView(this);
+        getWindow().setStatusBarColor(INK);
+        getWindow().setNavigationBarColor(INK);
+        screen = new android.widget.FrameLayout(this);
+        screen.setBackgroundColor(PAPER);
+        screen.setFocusableInTouchMode(true);
+        setContentView(screen);
+        map = new SurveyMap(this);
+        screen.addView(map, new android.widget.FrameLayout.LayoutParams(-1, -1));
+        boolean basemap = getPreferences(MODE_PRIVATE).getBoolean("basemap", true);
+        map.setBasemapEnabled(basemap);
+
+        header = panel();
+        LinearLayout top = row(header);
+        TextView brand = label("PlopMap", 25, INK);
+        brand.setTypeface(android.graphics.Typeface.create("sans-serif-medium", 0));
+        top.addView(brand, new LinearLayout.LayoutParams(0, -2, 1));
+        button(top, "Kartval", this::chooseMapOptions);
+        projectButton = button(header, "Projekt · " + project, this::chooseProject);
+        projectButton.setSingleLine(true);
+        projectButton.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        overlay(header, android.view.Gravity.TOP | android.view.Gravity.LEFT, -1, -2, 12, 10, 12, 0);
+
+        dock = panel();
+        LinearLayout heading = row(dock);
+        title = label("", 22, INK);
+        title.setTypeface(android.graphics.Typeface.create("sans-serif-medium", 0));
+        heading.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
+        button(heading, "Välj objekttyp", this::switchGeometry);
+        status = label("", 12, 0xff3d5e50);
+        dock.addView(status);
+        LinearLayout capture = row(dock);
+        cornerButton = button(capture, "Lägg till GPS-hörn", this::addCorner);
+        undoButton = button(capture, "Ångra", () -> {
+            if (corners.isEmpty()) return;
+            corners.remove(corners.size() - 1);
+            refresh();
+        });
+        detailsButton = button(dock, "Objektuppgifter", () -> showDetails(details.getVisibility() != View.VISIBLE));
+        primary(detailsButton);
+        overlay(dock, android.view.Gravity.BOTTOM, -1, -2, 12, 0, 12, 32);
+
+        LinearLayout controls = new LinearLayout(this);
+        controls.setOrientation(LinearLayout.VERTICAL);
+        mapControl(controls, "+", "Zooma in", () -> map.zoom(2));
+        mapControl(controls, "−", "Zooma ut", () -> map.zoom(0.5));
+        mapControl(controls, "◎", "Centrera på min position", () -> {
+            if (!map.locate()) activateGps();
+        });
+        fullscreenButton = mapControl(controls, "⛶", "Helskärmskarta", () -> setFullscreen(!fullscreen));
+        overlay(controls, android.view.Gravity.RIGHT | android.view.Gravity.CENTER_VERTICAL, -2, -2, 0, 0, 12, 0);
+
+        details = new ScrollView(this);
+        details.setFillViewport(false);
+        details.setBackground(card(PAPER, 20));
+        details.setElevation(dp(12));
         LinearLayout form = new LinearLayout(this);
         form.setOrientation(LinearLayout.VERTICAL);
-        int padding = Math.round(24 * getResources().getDisplayMetrics().density);
-        form.setPadding(padding, padding, padding, padding);
-        scroll.addView(form);
-        setContentView(scroll);
-
-        projectButton = button(form, "Projekt · " + project, this::chooseProject);
-        title = new TextView(this);
-        title.setText("Mät in brunn");
-        title.setTextSize(28);
-        form.addView(title);
-        button(form, "Välj objekttyp", this::switchGeometry);
-        map = new SurveyMap(this);
-        form.addView(map, new LinearLayout.LayoutParams(-1, padding * 8));
-        android.widget.Switch basemap = new android.widget.Switch(this);
-        basemap.setText("Baskarta (OpenStreetMap)");
-        basemap.setChecked(getPreferences(MODE_PRIVATE).getBoolean("basemap", true));
-        map.setBasemapEnabled(basemap.isChecked());
-        basemap.setOnCheckedChangeListener((view, enabled) -> {
-            getPreferences(MODE_PRIVATE).edit().putBoolean("basemap", enabled).apply();
-            map.setBasemapEnabled(enabled);
+        form.setPadding(dp(18), dp(12), dp(18), dp(14));
+        details.addView(form);
+        LinearLayout formHeading = row(form);
+        TextView formTitle = label("Objektuppgifter", 21, INK);
+        formHeading.addView(formTitle, new LinearLayout.LayoutParams(0, -2, 1));
+        button(formHeading, "Stäng", () -> showDetails(false));
+        overlay(details, android.view.Gravity.BOTTOM, -1, dp(360), 12, 0, 12, 32);
+        dock.addOnLayoutChangeListener((view, left, dockTop, right, bottom, oldLeft, oldTop, oldRight, oldBottom) ->
+                map.setBottomOverlay(dock.getVisibility() == View.VISIBLE ? bottom - dockTop + dp(32) : 0));
+        screen.addOnLayoutChangeListener((view, left, topEdge, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
+            int height = Math.max(dp(110), Math.min(dp(440), (bottom - topEdge) * 2 / 3));
+            if (details.getLayoutParams().height != height) {
+                var params = details.getLayoutParams();
+                params.height = height;
+                details.setLayoutParams(params);
+            }
         });
-        form.addView(basemap);
-        TextView copyright = new TextView(this);
-        copyright.setText(android.text.Html.fromHtml(
-                "<a href=\"https://www.openstreetmap.org/copyright\">Kartdata och licens · OpenStreetMap</a>",
-                android.text.Html.FROM_HTML_MODE_COMPACT));
-        copyright.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
-        form.addView(copyright);
-        button(form, "Föreslå yta från flygbild", this::chooseAerial);
-        status = new TextView(this);
-        form.addView(status);
-        button(form, "Aktivera telefonens GPS", this::activateGps);
-        button(form, "Extern GNSS via TCP", this::chooseReceiver);
+
         identifier = new EditText(this);
         identifier.setId(101);
         identifier.setHint("Brunns-ID (obligatoriskt)");
@@ -158,13 +208,10 @@ public final class MainActivity extends Activity {
         attributes.setOrientation(LinearLayout.VERTICAL);
         form.addView(attributes);
         objectFields = new ObjectFields(attributes, getPreferences(MODE_PRIVATE));
-        cornerButton = button(form, "Lägg till GPS-hörn", this::addCorner);
-        undoButton = button(form, "Ångra senaste hörn", () -> {
-            corners.remove(corners.size() - 1);
-            refresh();
-        });
         save = button(form, "Spara punkt", this::savePoint);
+        primary(save);
         if (state != null) {
+            map.restoreCamera(state);
             receiverHost = state.getString("receiverHost");
             receiverPort = state.getInt("receiverPort");
             mode = state.getInt("mode", state.getBoolean("polygon") ? 1 : 0);
@@ -178,9 +225,11 @@ public final class MainActivity extends Activity {
                 objectFields.show(mode, new JSONObject(state.getString("attributes", "{}")));
             } catch (JSONException ignored) {}
         }
-        saved = new TextView(this);
+        saved = label("", 13, INK);
         form.addView(saved);
         export = button(form, "Exportera", this::chooseExport);
+        showDetails(state != null && state.getBoolean("detailsOpen"));
+        setFullscreen(state != null && state.getBoolean("fullscreen"));
         refresh();
         refreshCount();
     }
@@ -188,6 +237,9 @@ public final class MainActivity extends Activity {
     @Override
     protected void onSaveInstanceState(Bundle state) {
         super.onSaveInstanceState(state);
+        map.saveCamera(state);
+        state.putBoolean("detailsOpen", details.getVisibility() == View.VISIBLE);
+        state.putBoolean("fullscreen", fullscreen);
         state.putString("receiverHost", receiverHost);
         state.putInt("receiverPort", receiverPort);
         state.putInt("mode", mode);
@@ -270,6 +322,7 @@ public final class MainActivity extends Activity {
         condition.setSelection(0);
         objectFields.show(mode, new JSONObject());
         selectProjectFeatures();
+        map.fit();
         refresh();
         refreshCount();
     }
@@ -307,6 +360,7 @@ public final class MainActivity extends Activity {
         cornerButton.setText(polygon() ? "Lägg till GPS-hörn" : "Lägg till brytpunkt");
         undoButton.setVisibility(multipart() ? android.view.View.VISIBLE : android.view.View.GONE);
         save.setText(mode == 0 ? "Spara punkt" : polygon() ? "Spara yta" : "Spara linje");
+        detailsButton.setText(mode == 0 ? "Registrera punkt" : "Objektuppgifter");
     }
 
     private void addCorner() {
@@ -317,12 +371,142 @@ public final class MainActivity extends Activity {
         }
     }
 
+    private int dp(float value) {
+        return Math.round(value * getResources().getDisplayMetrics().density);
+    }
+
+    private android.graphics.drawable.GradientDrawable card(int color, int radius) {
+        var background = new android.graphics.drawable.GradientDrawable();
+        background.setColor(color);
+        background.setCornerRadius(dp(radius));
+        return background;
+    }
+
+    private TextView label(String text, int scale, int color) {
+        TextView label = new TextView(this);
+        label.setText(text);
+        label.setTextSize(scale);
+        label.setTextColor(color);
+        return label;
+    }
+
+    private LinearLayout panel() {
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setPadding(dp(14), dp(8), dp(14), dp(10));
+        panel.setBackground(card(PAPER, 20));
+        panel.setElevation(dp(5));
+        return panel;
+    }
+
+    private LinearLayout row(LinearLayout parent) {
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        parent.addView(row, new LinearLayout.LayoutParams(-1, -2));
+        return row;
+    }
+
+    private void overlay(View view, int gravity, int width, int height, int left, int top, int right, int bottom) {
+        var params = new android.widget.FrameLayout.LayoutParams(width, height, gravity);
+        params.setMargins(dp(left), dp(top), dp(right), dp(bottom));
+        screen.addView(view, params);
+    }
+
     private Button button(LinearLayout form, String text, Runnable action) {
         Button button = new Button(this);
+        button.setAllCaps(false);
         button.setText(text);
+        button.setTextSize(14);
+        button.setTypeface(android.graphics.Typeface.create("sans-serif-medium", 0));
+        button.setTextColor(INK);
+        button.setMinimumHeight(dp(44));
+        button.setMinHeight(dp(44));
+        button.setMinimumWidth(0);
+        button.setMinWidth(0);
+        button.setPadding(dp(12), dp(6), dp(12), dp(6));
+        button.setStateListAnimator(null);
+        button.setBackground(new android.graphics.drawable.RippleDrawable(
+                android.content.res.ColorStateList.valueOf(0x22345d43), card(0xffe5efe7, 14), null));
         button.setOnClickListener(view -> action.run());
-        form.addView(button);
+        var params = new LinearLayout.LayoutParams(form.getOrientation() == LinearLayout.VERTICAL ? -1 : -2, -2);
+        params.setMargins(0, dp(4), form.getOrientation() == LinearLayout.HORIZONTAL ? dp(6) : 0, dp(4));
+        form.addView(button, params);
         return button;
+    }
+
+    private void primary(Button button) {
+        button.setBackground(new android.graphics.drawable.RippleDrawable(
+                android.content.res.ColorStateList.valueOf(0x33345d43), card(LIME, 14), null));
+    }
+
+    private Button mapControl(LinearLayout buttons, String symbol, String description, Runnable action) {
+        Button button = button(buttons, symbol, action);
+        button.setTextSize(22);
+        button.setContentDescription(description);
+        button.setElevation(dp(3));
+        button.setLayoutParams(new LinearLayout.LayoutParams(dp(48), dp(48)));
+        ((LinearLayout.LayoutParams) button.getLayoutParams()).bottomMargin = dp(6);
+        return button;
+    }
+
+    private void chooseMapOptions() {
+        boolean basemap = getPreferences(MODE_PRIVATE).getBoolean("basemap", true);
+        new android.app.AlertDialog.Builder(this).setTitle("Kartval och position")
+                .setItems(new String[]{"Visa hela projektet", basemap ? "Dölj OpenStreetMap" : "Visa OpenStreetMap",
+                        "Aktivera telefonens GPS", "Extern GNSS via TCP", "Föreslå yta från flygbild",
+                        "Redigera objektmall", "Exportera projekt", "Kartdata och licens"}, (dialog, which) -> {
+                    switch (which) {
+                        case 0 -> map.fit();
+                        case 1 -> {
+                            getPreferences(MODE_PRIVATE).edit().putBoolean("basemap", !basemap).apply();
+                            map.setBasemapEnabled(!basemap);
+                        }
+                        case 2 -> activateGps();
+                        case 3 -> chooseReceiver();
+                        case 4 -> chooseAerial();
+                        case 5 -> { showDetails(true); objectFields.edit(); }
+                        case 6 -> { if (export.isEnabled()) chooseExport(); else message("Projektet har inga objekt att exportera."); }
+                        case 7 -> {
+                            try {
+                                startActivity(new Intent(Intent.ACTION_VIEW,
+                                        android.net.Uri.parse("https://www.openstreetmap.org/copyright")));
+                            } catch (android.content.ActivityNotFoundException error) {
+                                message("Licens: openstreetmap.org/copyright");
+                            }
+                        }
+                    }
+                }).show();
+    }
+
+    private void showDetails(boolean visible) {
+        details.setVisibility(visible ? View.VISIBLE : View.GONE);
+        dock.setVisibility(visible || fullscreen ? View.GONE : View.VISIBLE);
+        map.setBottomOverlay(visible || fullscreen ? 0 : dock.getHeight() + dp(32));
+        if (!visible && details.getWindowToken() != null) {
+            screen.requestFocus();
+            var keyboard = getSystemService(android.view.inputmethod.InputMethodManager.class);
+            keyboard.hideSoftInputFromWindow(details.getWindowToken(), 0);
+        }
+    }
+
+    private void setFullscreen(boolean enabled) {
+        fullscreen = enabled;
+        if (enabled) showDetails(false);
+        header.setVisibility(enabled ? View.GONE : View.VISIBLE);
+        dock.setVisibility(enabled || details.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE);
+        map.setBottomOverlay(dock.getVisibility() == View.VISIBLE ? dock.getHeight() + dp(32) : 0);
+        fullscreenButton.setContentDescription(enabled ? "Avsluta helskärmskarta" : "Helskärmskarta");
+        fullscreenButton.setText(enabled ? "×" : "⛶");
+        int flags = enabled ? View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY : 0;
+        getWindow().getDecorView().setSystemUiVisibility(flags);
+    }
+
+    @Override
+    public void onBackPressed() {
+        if (fullscreen) setFullscreen(false);
+        else if (details.getVisibility() == View.VISIBLE) showDetails(false);
+        else super.onBackPressed();
     }
 
     @Override
@@ -546,8 +730,11 @@ public final class MainActivity extends Activity {
         boolean enabled = receiverHost != null || (precisePermission() && locations.isProviderEnabled(LocationManager.GPS_PROVIDER));
         boolean fresh = enabled && fix != null && age(fix) < MAX_AGE_MS;
         cornerButton.setEnabled(multipart() && fresh && !aerialDraft());
+        cornerButton.setAlpha(cornerButton.isEnabled() ? 1f : 0.5f);
         undoButton.setEnabled(multipart() && !corners.isEmpty());
+        undoButton.setAlpha(undoButton.isEnabled() ? 1f : 0.5f);
         save.setEnabled(features != null && (multipart() ? corners.size() >= (polygon() ? 3 : 2) : fresh));
+        save.setAlpha(save.isEnabled() ? 1f : 0.5f);
         if (!enabled) {
             status.setText("Aktivera GPS och ge appen exakt platsbehörighet.");
         } else if (!fresh) {
@@ -605,6 +792,7 @@ public final class MainActivity extends Activity {
             condition.setSelection(0);
             objectFields.show(mode, new JSONObject());
             refreshCount();
+            showDetails(false);
             message("Objektet sparades.");
         } catch (JSONException error) {
             message("Objektet kunde inte sparas.");

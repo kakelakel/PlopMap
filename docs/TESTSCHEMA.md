@@ -95,3 +95,16 @@ RTK-fix utan rapporterad osäkerhet. Stoppa servern mellan försöken.
 | G1 | Ha nätåtkomst, slå på **Baskarta (OpenStreetMap)** och skicka position 57.65000, 14.69000. | Vägar och andra kartdetaljer visas bakom positionspunkten, med OpenStreetMap-attribution. |
 | G2 | Spara en punkt och mät in en linje i samma område. Slå av baskartan. | Objekten ligger kvar i översikten och går att exportera även när baskartan är av. |
 | G3 | Koppla ned nätet efter att kartan har laddats. Återgå till samma position. | Cachade kartbilder visas när de finns. Plats, objekt och export fungerar även när delar av kartan saknas. |
+
+## H. Kartgränssnitt
+
+| ID | Gör så här | Godkänt när |
+|---|---|---|
+| H1 | Starta appen. Dra kartan, nypzoom och dubbeltryck. Prova även + och −. | Kartbild, positionsmarkör och inmätta objekt följer samma kamera. En ny GPS-fix flyttar inte tillbaka en vy som användaren panorerat. |
+| H2 | Tryck på positionsknappen med en färsk GPS-fix. Välj sedan **Kartval → Visa hela projektet**. | Första kommandot centrerar GPS-positionen. Det andra passar in projektets geometrier. |
+| H3 | Tryck på helskärmsknappen. Panorera och zooma, rotera skärmen och avsluta helskärm med × eller Androids bakåtknapp. | Kameraläget bevaras. Projekt- och mätpanelen återkommer när helskärm stängs. |
+| H4 | Välj linje, lägg till två brytpunkter i kartvyn och öppna **Objektuppgifter**. Fyll i ID och spara. | Linjen visas på kartan, formuläret stängs efter sparning och linjen följer med vid export från **Kartval**. |
+
+På den kartbaserade startsidan finns GPS, extern GNSS, flygbild och export
+under **Kartval**. Öppna **Registrera punkt** eller **Objektuppgifter**
+för formulärfält och sparknappen.
