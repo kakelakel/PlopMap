@@ -47,12 +47,43 @@ Om QGIS delar GeoJSON efter geometrityp, lägg till alla geometrier.
 | C3 | Jämför exportens punkter med referensen i QGIS i ett metriskt koordinatsystem, exempelvis SWEREF 99 TM. Anteckna planavvikelsen per försök. | Det faktiska felet är uppmätt. Endast försök inom 0,20 m räknas som godkända för positionstoleransen. |
 | C4 | Jämför höjd mot en referens med samma höjdreferens eller efter korrekt omräkning. | Höjdskillnad och höjdreferens finns dokumenterade. Höjd har ännu ingen beslutad acceptansgräns. |
 
-## Kommande acceptanstester
+## D. GeoPackage och objektmallar
 
-- **RTK**. Mät kända punkter med en extern mottagare, logga fixstatus och
-  verifiera planavvikelse mot 0,20 m vid upprepade mätningar.
-- **Flygbild**. Klicka på gräsytor i georefererade flygbilder vid asfalt,
-  grus och skugga. Jämför tid för förslag plus korrigering med manuell
-  ritning. Kontrollera att källan följer med vid export.
-- **Objektmallar och GeoPackage**. Skapa en egen mall och
-  jämför fälttyper, obligatoriska värden, geometri och referenssystem i QGIS.
+| ID | Gör så här | Godkänt när |
+|---|---|---|
+| D1 | Exportera projektet från A3–A5 som **GeoPackage · WGS 84**. Öppna filen i QGIS och lägg till alla lager. | En fil innehåller fyra lager i EPSG:4326. Antal objekt per lager är 1, 1, 1 och 5. Höjder och UUID-kopplingar motsvarar Shapefile-exporten. |
+| D2 | Välj **Brunn → Redigera objektmall**. Skriv `Inventeringsnummer*` och `Material` på varsin rad. Försök spara med brunns-ID men utan inventeringsnummer. Fyll sedan i `INV-001` och `Gjutjärn` och spara. | Appen kräver inventeringsnummer. De två textvärdena följer med i `attribut` i GeoJSON och GeoPackage. Shapefile-ZIP har även `objektattribut.geojson` med värdena och samma UUID. |
+| D3 | Byt till **Linje**. Skapa en annan mall. Starta om appen, byt tillbaka till **Brunn** och ändra eller ta bort fältet Material. Exportera den redan sparade brunnen igen. | Varje objekttyp har sin egen sparade mall. Ändrad mall påverkar nya formulär. Tidigare objekt behåller lagrade attribut. |
+
+## E. Flygbild och ytförslag
+
+Använd först en enkel PNG med en grön rektangel på grå bakgrund. Skapa den
+till exempel i Paint. Lägg bilden i emulatorns nedladdningsmapp. Använd sedan
+ett eget norrvänt ortofoto exporterat i WGS 84 och anteckna dess riktiga
+kartutsnitt i QGIS.
+
+| ID | Gör så här | Godkänt när |
+|---|---|---|
+| E1 | Välj **Föreslå yta från flygbild**, öppna PNG:n och ange väst 14.69000, syd 57.65000, öst 14.69100 och nord 57.65100. Tryck först på grått, sedan mitt i rektangeln. | Ingen yta föreslås på grått. På grönt visas ett polygonförslag runt rektangeln. |
+| E2 | Dra ett av hörnen, använd förslaget, ge ytan ID och spara. Stäng av datatrafiken vid testet. | Utkastet går att spara offline utan GPS. Ytan markeras preliminär med källa Flygbild. Exporten innehåller koordinater inom utsnittet och tomma höjdfält. |
+| E3 | Gör om med ortofotot. Testa gränser mot asfalt och grus, skuggor och en yta med inbuktning. Jämför förslaget mot ortofotot i QGIS och notera hur lång tid justeringen tar. | Förslaget går att justera före sparning. Registrera även missade ytor och ytor som fylls ut för mycket så att metoden kan jämföras med manuell ritning. |
+| E4 | Ange omvänd ordning på syd och nord. Prova även att avbryta filvalet och förhandsvisningen. | Ogiltiga koordinater stoppas. Avbrott sparar inget objekt. |
+
+## F. Extern GNSS och RTK
+
+Använd en mottagare eller brygga med checksummekontrollerade NMEA-meddelanden
+över TCP. Konfigurera GGA och GST från samma epok. NMEA-korrigeringar för RTK
+hanteras av mottagaren eller dess brygga. Kontrollera mottagarens datum och
+höjdreferens innan du jämför med referenspunkterna.
+
+För ett första test i emulatorn kan du köra [NMEA-fixturen](nmea_fixture.py)
+på datorn med `python docs/nmea_fixture.py`. Anslut PlopMap till
+`10.0.2.2:9000`. Använd `--quality 5` för float eller `--no-gst` för en
+RTK-fix utan rapporterad osäkerhet. Stoppa servern mellan försöken.
+
+| ID | Gör så här | Godkänt när |
+|---|---|---|
+| F1 | Tryck **Extern GNSS via TCP**, anslut till fixturen med standardinställning och spara en brunn. | Källan är Extern GNSS, status RTK fix och uppskattad osäkerhet cirka 0,05 m. Punkten ligger vid cirka 57.65, 14.69. Ellipsoidhöjden är 258 m. |
+| F2 | Anslut med `--quality 5` eller `--no-gst`. Stoppa sedan servern. | RTK float eller saknad osäkerhet ger preliminär mätning. Vid avbrott blir sparknappen inaktiv och appen visar ett fel. |
+| F3 | Starta fixturen igen och anslut. Tryck sedan **Aktivera telefonens GPS** och skicka en separat emulatorposition. | Källan byts till telefonens GPS. Ingen tidigare position från mottagaren kan sparas som telefonmätning. |
+| F4 | Mät upprepade gånger mot en känd punkt med verklig RTK-mottagare. Spara punkt och minst en linje. Exportera till QGIS och kontrollera fixstatus, källa, höjd och faktiska planfel. | Exporten kan spåras till mätkällan per brytpunkt. Redovisa antal avvikelser över 0,20 m i plan. Rapportera höjdavvikelse separat. |

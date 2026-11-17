@@ -1,7 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
-    <application android:label="PlopMap" android:theme="@android:style/Theme.Material.Light.NoActionBar"
+    <application android:label="PlopMap" android:icon="@drawable/plopmap_icon" android:theme="@android:style/Theme.Material.Light.NoActionBar"
         android:allowBackup="false">
         <activity android:name=".MainActivity" android:exported="true">
             <intent-filter>

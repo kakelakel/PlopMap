@@ -22,12 +22,16 @@ en debug-APK när byggjobbet lyckas.
 
 Följ [testschemat](docs/TESTSCHEMA.md) för emulator, QGIS och fälttest.
 
-## Nästa leveranser
+## Objektmallar, flygbild och GNSS
 
-- Redigerbara objektmallar och georefererad bakgrundskarta.
-- Extern GNSS med RTK och fältverifiering mot kända referenspunkter för
-  20 cm i plan. Separat mål för höjd.
-- GeoPackage.
-- Klickstyrda ytförslag från georefererade flygbilder för snabb basinventering.
-  Börja med gräsytor och jämför tiden för förslag plus korrigering med manuell
-  ritning. Spara källa och håll bildtolkad geometri spårbar vid senare inmätning.
+- **Objektmallar** sparas per objekttyp. Lägg till textfält i formuläret
+  och markera obligatoriska fält med `*`. GeoPackage lagrar egna fält i
+  kolumnen `attribut`. Shapefile-ZIP har med samma metadata som GeoJSON
+  vid sidan av DBF, kopplad via objektets UUID.
+- **GeoPackage** samlar punkt, linje, yta och brytpunkter i en fil i WGS 84.
+- **Flygbild** öppnar ett lokalt norrvänt WGS 84-ortofoto med manuellt angivet
+  kartutsnitt. Färgsegmenteringen körs offline och föreslår en konvex yta.
+  Granska bilden och dra hörnen vid behov. Förslaget är preliminärt.
+- **Extern GNSS** läser GGA och GST via NMEA/TCP. Mottagaren ansvarar för
+  RTK-korrigeringarna. En RTK-fix utan uppskattad osäkerhet sparas som
+  preliminär. Mättiden är när appen tog emot positionen.

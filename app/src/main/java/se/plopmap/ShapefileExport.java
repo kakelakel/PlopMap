@@ -26,7 +26,7 @@ final class ShapefileExport {
             new Field("prelim", 'L', 1, 0), new Field("horn_nr", 'N', 9, 0),
             new Field("hojd_m", 'N', 16, 4), new Field("plan_m", 'N', 16, 4),
             new Field("hojdosak_m", 'N', 16, 4), new Field("hojdref", 'C', 32, 0),
-            new Field("matt_utc", 'C', 32, 0)
+            new Field("matt_utc", 'C', 32, 0), new Field("fixstatus", 'C', 24, 0)
     };
 
     static void write(JSONArray features, OutputStream output, ExportCrs crs) throws JSONException, IOException {
@@ -70,6 +70,8 @@ final class ShapefileExport {
             layer(zip, "linjer", 3, lines, crs);
             layer(zip, "ytor", 5, polygons, crs);
             layer(zip, "brytpunkter", 1, vertices, crs);
+            entry(zip, "objektattribut.geojson",
+                    new JSONObject().put("type", "FeatureCollection").put("features", features).toString());
         }
     }
 
@@ -82,11 +84,11 @@ final class ShapefileExport {
                 properties.optString("yta_id", properties.optString("linje_id")));
         return new String[]{feature.optString("id"), id,
                 properties.optString("objekttyp", properties.has("brunn_id") ? "Brunn" : "Gräsyta"),
-                properties.optString("skick"), properties.optString("anteckning"), properties.optString("kalla"),
+                properties.optString("skick"), properties.optString("anteckning"), measurement.optString("kalla", properties.optString("kalla")),
                 measurement.has("preliminar") ? (measurement.optBoolean("preliminar") ? "T" : "F") : "?",
                 index, number(measurement.optDouble("hojd_m")), number(measurement.optDouble("plan_osakerhet_m")),
                 number(measurement.optDouble("hojd_osakerhet_m")), measurement.optString("hojdreferens", ""),
-                measurement.optString("matt_utc", "")};
+                measurement.optString("matt_utc", ""), measurement.optString("fixstatus", "")};
     }
 
     private static String number(JSONArray value, int index) {
