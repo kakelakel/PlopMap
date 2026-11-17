@@ -62,9 +62,19 @@ public final class MainActivity extends Activity {
     private Spinner condition;
     private Button save;
     private Button export;
+    private static final String DEFAULT_PROJECT = "Standard";
+    private JSONArray allFeatures;
     private JSONArray features;
+    private String project;
+    private Button projectButton;
     private final java.util.ArrayList<Location> corners = new java.util.ArrayList<>();
-    private boolean polygon;
+    private static final String[] TYPES = {"Brunn", "Gräsyta", "Linje"};
+    private static final String[] ID_FIELDS = {"brunn_id", "yta_id", "linje_id"};
+    private int mode;
+    private boolean polygon() { return mode == 1; }
+    private boolean multipart() { return mode != 0; }
+    private SurveyMap map;
+    private boolean shapefile;
     private TextView title;
     private Button cornerButton;
     private Button undoButton;
@@ -74,10 +84,13 @@ public final class MainActivity extends Activity {
         super.onCreate(state);
         locations = getSystemService(LocationManager.class);
         try {
-            features = new JSONArray(getPreferences(MODE_PRIVATE).getString("features", "[]"));
+            allFeatures = new JSONArray(getPreferences(MODE_PRIVATE).getString("features", "[]"));
         } catch (JSONException error) {
-            features = null;
+            allFeatures = null;
         }
+
+        project = getPreferences(MODE_PRIVATE).getString("project", DEFAULT_PROJECT);
+        selectProjectFeatures();
 
         ScrollView scroll = new ScrollView(this);
         LinearLayout form = new LinearLayout(this);
@@ -87,11 +100,14 @@ public final class MainActivity extends Activity {
         scroll.addView(form);
         setContentView(scroll);
 
+        projectButton = button(form, "Projekt · " + project, this::chooseProject);
         title = new TextView(this);
         title.setText("Mät in brunn");
         title.setTextSize(28);
         form.addView(title);
-        button(form, "Byt mellan brunn och gräsyta", this::switchGeometry);
+        button(form, "Välj objekttyp", this::switchGeometry);
+        map = new SurveyMap(this);
+        form.addView(map, new LinearLayout.LayoutParams(-1, padding * 8));
         status = new TextView(this);
         form.addView(status);
         button(form, "Aktivera GPS", this::activateGps);
@@ -120,14 +136,15 @@ public final class MainActivity extends Activity {
         });
         save = button(form, "Spara punkt", this::savePoint);
         if (state != null) {
-            polygon = state.getBoolean("polygon");
+            mode = state.getInt("mode", state.getBoolean("polygon") ? 1 : 0);
+            shapefile = state.getBoolean("shapefile");
             java.util.ArrayList<Location> restored = state.getParcelableArrayList("corners");
             if (restored != null) corners.addAll(restored);
         }
         updateForm();
         saved = new TextView(this);
         form.addView(saved);
-        export = button(form, "Exportera GeoJSON", this::chooseExport);
+        export = button(form, "Exportera", this::chooseExport);
         refresh();
         refreshCount();
     }
@@ -135,36 +152,120 @@ public final class MainActivity extends Activity {
     @Override
     protected void onSaveInstanceState(Bundle state) {
         super.onSaveInstanceState(state);
-        state.putBoolean("polygon", polygon);
+        state.putInt("mode", mode);
+        state.putBoolean("shapefile", shapefile);
         state.putParcelableArrayList("corners", corners);
     }
 
-    private void switchGeometry() {
-        if (polygon && !corners.isEmpty()) {
-            new android.app.AlertDialog.Builder(this)
-                    .setMessage("Byta mätläge och kassera osparade hörn?")
-                    .setNegativeButton("Fortsätt mäta", null)
-                    .setPositiveButton("Byt mätläge", (dialog, which) -> {
-                        corners.clear();
-                        toggleGeometry();
-                    }).show();
+    private void selectProjectFeatures() {
+        if (allFeatures == null) {
+            features = null;
             return;
         }
-        toggleGeometry();
+        features = new JSONArray();
+        for (int i = 0; i < allFeatures.length(); i++) {
+            JSONObject item = allFeatures.optJSONObject(i);
+            JSONObject properties = item == null ? null : item.optJSONObject("properties");
+            if (properties != null && project.equals(properties.optString("projekt", DEFAULT_PROJECT))) {
+                features.put(item);
+            }
+        }
     }
 
-    private void toggleGeometry() {
-        polygon = !polygon;
+    private void chooseProject() {
+        java.util.Set<String> names = new java.util.LinkedHashSet<>();
+        names.add(DEFAULT_PROJECT);
+        names.addAll(getPreferences(MODE_PRIVATE).getStringSet("projects", java.util.Collections.emptySet()));
+        names.add(project);
+        if (allFeatures != null) for (int i = 0; i < allFeatures.length(); i++) {
+            JSONObject item = allFeatures.optJSONObject(i);
+            JSONObject properties = item == null ? null : item.optJSONObject("properties");
+            if (properties != null) names.add(properties.optString("projekt", DEFAULT_PROJECT));
+        }
+        java.util.List<String> options = new java.util.ArrayList<>(names);
+        options.add("Nytt projekt …");
+        new android.app.AlertDialog.Builder(this).setTitle("Projekt")
+                .setItems(options.toArray(new String[0]), (dialog, index) -> {
+                    if (index < names.size()) {
+                        requestProject(options.get(index));
+                    } else {
+                        EditText name = new EditText(this);
+                        name.setSingleLine(true);
+                        name.setHint("Projektnamn");
+                        new android.app.AlertDialog.Builder(this).setTitle("Nytt projekt")
+                                .setView(name).setNegativeButton("Avbryt", null)
+                                .setPositiveButton("Öppna", (prompt, which) -> {
+                                    String value = name.getText().toString().trim();
+                                    if (value.isEmpty()) message("Ange ett projektnamn.");
+                                    else requestProject(value);
+                                }).show();
+                    }
+                }).show();
+    }
+
+    private void requestProject(String name) {
+        if (project.equals(name)) return;
+        if (corners.isEmpty() && identifier.length() == 0 && note.length() == 0
+                && condition.getSelectedItemPosition() == 0) {
+            openProject(name);
+            return;
+        }
+        new android.app.AlertDialog.Builder(this).setMessage("Kassera osparad inmätning och byta projekt?")
+                .setNegativeButton("Fortsätt mäta", null)
+                .setPositiveButton("Byt projekt", (dialog, which) -> openProject(name)).show();
+    }
+
+    private void openProject(String name) {
+        java.util.Set<String> names = new java.util.HashSet<>(
+                getPreferences(MODE_PRIVATE).getStringSet("projects", java.util.Collections.emptySet()));
+        names.add(name);
+        if (!getPreferences(MODE_PRIVATE).edit().putString("project", name).putStringSet("projects", names).commit()) {
+            message("Projektet kunde inte öppnas.");
+            return;
+        }
+        project = name;
+        projectButton.setText("Projekt · " + project);
+        corners.clear();
+        identifier.setText("");
+        note.setText("");
+        condition.setSelection(0);
+        selectProjectFeatures();
+        refresh();
+        refreshCount();
+    }
+
+    private void switchGeometry() {
+        new android.app.AlertDialog.Builder(this)
+                .setTitle("Objekttyp")
+                .setSingleChoiceItems(TYPES, mode, (dialog, selected) -> {
+                    dialog.dismiss();
+                    if (selected == mode) return;
+                    if (corners.isEmpty()) {
+                        changeMode(selected);
+                    } else {
+                        new android.app.AlertDialog.Builder(this)
+                                .setMessage("Kassera osparade hörn och byta objekttyp?")
+                                .setNegativeButton("Fortsätt mäta", null)
+                                .setPositiveButton("Byt", (confirm, which) -> changeMode(selected))
+                                .show();
+                    }
+                }).show();
+    }
+
+    private void changeMode(int selected) {
+        corners.clear();
+        mode = selected;
         updateForm();
         refresh();
     }
 
     private void updateForm() {
-        title.setText(polygon ? "Mät in gräsyta" : "Mät in brunn");
-        identifier.setHint(polygon ? "Yt-ID (obligatoriskt)" : "Brunns-ID (obligatoriskt)");
-        cornerButton.setVisibility(polygon ? android.view.View.VISIBLE : android.view.View.GONE);
-        undoButton.setVisibility(polygon ? android.view.View.VISIBLE : android.view.View.GONE);
-        save.setText(polygon ? "Spara yta" : "Spara punkt");
+        title.setText(TYPES[mode]);
+        identifier.setHint(TYPES[mode] + " · ID (obligatoriskt)");
+        cornerButton.setVisibility(multipart() ? android.view.View.VISIBLE : android.view.View.GONE);
+        cornerButton.setText(polygon() ? "Lägg till GPS-hörn" : "Lägg till brytpunkt");
+        undoButton.setVisibility(multipart() ? android.view.View.VISIBLE : android.view.View.GONE);
+        save.setText(mode == 0 ? "Spara punkt" : polygon() ? "Spara yta" : "Spara linje");
     }
 
     private void addCorner() {
@@ -237,9 +338,9 @@ public final class MainActivity extends Activity {
         handler.removeCallbacks(expire);
         boolean enabled = precisePermission() && locations.isProviderEnabled(LocationManager.GPS_PROVIDER);
         boolean fresh = enabled && fix != null && age(fix) < MAX_AGE_MS;
-        cornerButton.setEnabled(polygon && fresh);
-        undoButton.setEnabled(polygon && !corners.isEmpty());
-        save.setEnabled(features != null && (polygon ? corners.size() >= 3 : fresh));
+        cornerButton.setEnabled(multipart() && fresh);
+        undoButton.setEnabled(multipart() && !corners.isEmpty());
+        save.setEnabled(features != null && (multipart() ? corners.size() >= (polygon() ? 3 : 2) : fresh));
         if (!enabled) {
             status.setText("Aktivera GPS och ge appen exakt platsbehörighet.");
         } else if (!fresh) {
@@ -256,7 +357,8 @@ public final class MainActivity extends Activity {
                     + (meetsTarget(fix) ? "\nInom målet enligt GPS-uppskattningen" : "\nPreliminär · mål 20 cm"));
             handler.postDelayed(expire, Math.max(1, MAX_AGE_MS - age(fix)));
         }
-        if (polygon) status.append("\nRegistrerade hörn: " + corners.size());
+        if (multipart()) status.append("\nRegistrerade brytpunkter: " + corners.size());
+        map.update(features, corners, fresh ? fix : null, polygon());
     }
 
     private void savePoint() {
@@ -264,33 +366,35 @@ public final class MainActivity extends Activity {
         if (!save.isEnabled()) return;
         String id = identifier.getText().toString().trim();
         if (id.isEmpty()) {
-            identifier.setError(polygon ? "Ange yt-ID" : "Ange brunns-ID");
+            identifier.setError("Ange objektets ID");
             return;
         }
         try {
             JSONObject properties = new JSONObject()
-                    .put(polygon ? "yta_id" : "brunn_id", id)
-                    .put("objekttyp", polygon ? "Gräsyta" : "Brunn")
+                    .put(ID_FIELDS[mode], id)
+                    .put("objekttyp", TYPES[mode])
+                    .put("projekt", project)
                     .put("skick", condition.getSelectedItem().toString())
                     .put("anteckning", note.getText().toString().trim())
                     .put("kalla", "Telefonens GPS");
-            JSONObject geometry = polygon ? polygonGeometry(properties) : pointGeometry(properties);
+            JSONObject geometry = multipart() ? pathGeometry(properties) : pointGeometry(properties);
             if (geometry == null) return;
             JSONObject feature = new JSONObject().put("type", "Feature")
                     .put("id", UUID.randomUUID().toString()).put("properties", properties).put("geometry", geometry);
-            JSONArray next = new JSONArray(features.toString()).put(feature);
+            JSONArray next = new JSONArray(allFeatures.toString()).put(feature);
             if (!getPreferences(MODE_PRIVATE).edit().putString("features", next.toString()).commit()) {
                 message("Objektet kunde inte sparas.");
                 return;
             }
-            features = next;
+            allFeatures = next;
+            selectProjectFeatures();
             corners.clear();
             refresh();
             identifier.setText("");
             note.setText("");
             condition.setSelection(0);
             refreshCount();
-            message(polygon ? "Ytan sparades." : "Punkten sparades.");
+            message("Objektet sparades.");
         } catch (JSONException error) {
             message("Objektet kunde inte sparas.");
         }
@@ -308,13 +412,18 @@ public final class MainActivity extends Activity {
         return new JSONObject().put("type", "Point").put("coordinates", coordinates);
     }
 
-    private JSONObject polygonGeometry(JSONObject properties) throws JSONException {
+    private JSONObject pathGeometry(JSONObject properties) throws JSONException {
         java.util.ArrayList<PolygonRing.Vertex> vertices = new java.util.ArrayList<>();
         for (Location corner : corners) {
             vertices.add(new PolygonRing.Vertex(corner.getLongitude(), corner.getLatitude()));
         }
         try {
-            PolygonRing.validate(vertices);
+            if (polygon()) PolygonRing.validate(vertices);
+            else for (int i = 1; i < vertices.size(); i++) {
+                if (vertices.get(i).equals(vertices.get(i - 1))) {
+                    throw new IllegalArgumentException("Två brytpunkter i följd har samma position.");
+                }
+            }
         } catch (IllegalArgumentException error) {
             message(error.getMessage());
             return null;
@@ -322,16 +431,17 @@ public final class MainActivity extends Activity {
         JSONArray ring = new JSONArray();
         JSONArray measurements = new JSONArray();
         boolean preliminary = false;
-        boolean reverse = PolygonRing.signedArea(vertices) < 0;
+        boolean reverse = polygon() && PolygonRing.signedArea(vertices) < 0;
         for (int i = 0; i < corners.size(); i++) {
             Location corner = corners.get(reverse && i > 0 ? corners.size() - i : i);
             ring.put(coordinates(corner));
             measurements.put(measurement(corner));
             preliminary |= !meetsTarget(corner);
         }
-        ring.put(coordinates(corners.get(0)));
+        if (polygon()) ring.put(coordinates(corners.get(0)));
         properties.put("preliminar", preliminary).put("hornmatningar", measurements);
-        return new JSONObject().put("type", "Polygon").put("coordinates", new JSONArray().put(ring));
+        return new JSONObject().put("type", polygon() ? "Polygon" : "LineString")
+                .put("coordinates", polygon() ? new JSONArray().put(ring) : ring);
     }
 
     private JSONArray coordinates(Location point) throws JSONException {
@@ -355,9 +465,16 @@ public final class MainActivity extends Activity {
     }
 
     private void chooseExport() {
+        new android.app.AlertDialog.Builder(this).setTitle("Exportformat")
+                .setItems(new String[]{"GeoJSON", "Shapefile (ZIP)"}, (dialog, which) -> createExport(which == 1))
+                .show();
+    }
+
+    private void createExport(boolean zip) {
+        shapefile = zip;
         Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT)
-                .addCategory(Intent.CATEGORY_OPENABLE).setType("application/geo+json")
-                .putExtra(Intent.EXTRA_TITLE, "plopmap-inmatning.geojson");
+                .addCategory(Intent.CATEGORY_OPENABLE).setType(zip ? "application/zip" : "application/geo+json")
+                .putExtra(Intent.EXTRA_TITLE, zip ? "plopmap-inmatning.zip" : "plopmap-inmatning.geojson");
         startActivityForResult(intent, EXPORT_FILE);
     }
 
@@ -367,13 +484,16 @@ public final class MainActivity extends Activity {
         if (code != EXPORT_FILE || result != RESULT_OK || data == null || data.getData() == null || features == null) return;
         try (OutputStream output = getContentResolver().openOutputStream(data.getData(), "wt")) {
             if (output == null) throw new IOException("Output unavailable");
-            JSONObject collection = new JSONObject().put("type", "FeatureCollection").put("features", features);
-            output.write(collection.toString().getBytes(StandardCharsets.UTF_8));
+            if (shapefile) ShapefileExport.write(features, output);
+            else {
+                JSONObject collection = new JSONObject().put("type", "FeatureCollection").put("features", features);
+                output.write(collection.toString().getBytes(StandardCharsets.UTF_8));
+            }
         } catch (IOException | JSONException error) {
             message("Exporten misslyckades.");
             return;
         }
-        message("GeoJSON exporterades.");
+        message(shapefile ? "Shapefile exporterades." : "GeoJSON exporterades.");
     }
 
     private void message(String text) {
