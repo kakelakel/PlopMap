@@ -1,5 +1,11 @@
 name: Android
-on: [push, pull_request]
+on:
+  push:
+    branches: [main, plopmap/android-foundation]
+  pull_request:
+
+permissions:
+  contents: read
 
 jobs:
   debug-apk:
@@ -10,8 +16,7 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@v3
-      - run: sdkmanager "platforms;android-35"
+      - run: sdkmanager "platforms;android-35" "build-tools;34.0.0"
       - uses: gradle/actions/setup-gradle@v4
       - run: ./gradlew :app:assembleDebug
       - uses: actions/upload-artifact@v4
@@ -19,3 +24,30 @@ jobs:
           name: plopmap-debug
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+
+  publish-test-apk:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/plopmap/android-foundation'
+    needs: debug-apk
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: plopmap-debug
+          path: dist
+      - name: Publish Android test release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          tag="android-test-${SOURCE_SHA:0:12}"
+          mv dist/app-debug.apk dist/PlopMap-test.apk
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" dist/PlopMap-test.apk --clobber
+          else
+            gh release create "$tag" dist/PlopMap-test.apk \
+              --target "$SOURCE_SHA" --prerelease --title "PlopMap Android-test (${SOURCE_SHA:0:7})" \
+              --notes "Öppna APK-filen på Android för att installera testbygget från $SOURCE_SHA. Vid signaturkonflikt behöver den tidigare testappen avinstalleras. Exportera sparade objekt först."
+          fi
