@@ -16,7 +16,13 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - run: sdkmanager "platforms;android-35" "build-tools;34.0.0"
+      - name: Ensure Android SDK packages
+        run: |
+          sdk="${ANDROID_HOME:?Android SDK not found}"
+          if [[ ! -f "$sdk/platforms/android-35/android.jar" || ! -x "$sdk/build-tools/34.0.0/aapt2" ]]; then
+            manager="$(find "$sdk/cmdline-tools" -path '*/bin/sdkmanager' | sort -V | tail -n 1)"
+            "${manager:?sdkmanager not found}" "platforms;android-35" "build-tools;34.0.0"
+          fi
       - uses: gradle/actions/setup-gradle@v4
       - run: ./gradlew :app:assembleDebug
       - uses: actions/upload-artifact@v4
